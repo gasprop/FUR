@@ -1539,7 +1539,7 @@ var FurEngine = class {
       damping: opts.damping ?? 0.862,
       mass: opts.mass ?? 1,
       groomMemory: opts.groomMemory ?? 2e3,
-      wind: opts.wind ?? { speed: 0.6, direction: 45, gustiness: 0.45 },
+      wind: opts.wind,
       breathing: opts.breathing ?? false,
       hairLength: opts.hairLength ?? 1,
       density: opts.density,
@@ -2276,7 +2276,7 @@ var FurEngine = class {
     const radius = Math.max(84, Math.min(W, H) * 0.22);
     const r2 = radius * radius;
     const invR = 1 / radius;
-    const windCfg = this.options.wind ?? { speed: 0.6, direction: 45, gustiness: 0.45 };
+    const windCfg = this.options.wind ?? { speed: 0, direction: 45, gustiness: 0 };
     const groomMem = this.options.groomMemory ?? 2e3;
     const kkStiff = this.options.stiffness ?? 0.2;
     const kkDamp = this.options.damping ?? 0.862;
@@ -2296,11 +2296,11 @@ var FurEngine = class {
       const len = breatheEnabled ? len0 * breatheScale : len0;
       let tx = 0, ty = 0;
       {
-        const speed = windCfg.speed ?? 0.6;
+        const speed = windCfg.speed ?? 0;
         const gust = windCfg.gustiness ?? 0.45;
         const dirRad = (windCfg.direction ?? 45) * Math.PI / 180;
         const cosD = Math.cos(dirRad), sinD = Math.sin(dirRad);
-        const w = reduceMotion ? 0.15 : speed;
+        const w = speed ? reduceMotion ? Math.min(speed, 0.15) : speed : 0;
         tx = Math.sin(tSec * 1.6 + ph) * 1.15 * amp * w + cosD * w * 0.8 + gust * Math.sin(tSec * 0.7 + ph * 0.5) * w * 0.6 * cosD;
         ty = Math.cos(tSec * 1.25 + ph * 1.7) * 1.15 * amp * w + sinD * w * 0.8 + gust * Math.sin(tSec * 0.7 + ph * 0.5) * w * 0.6 * sinD;
       }

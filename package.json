@@ -1,6 +1,6 @@
 {
-  "name": "furjs",
-  "version": "1.0.0",
+  "name": "@thatonearyan/furjs",
+  "version": "1.0.1",
   "description": "The Universal Interactive Living Fur Typography Engine — photorealistic, physics-driven fur for any text, font or glyph on HTML5 Canvas 2D. Zero dependencies.",
   "keywords": [
     "fur",
