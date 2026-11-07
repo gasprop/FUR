@@ -1,0 +1,9 @@
+node_modules
+dist
+playground-dist
+.turbo
+.cache
+*.tsbuildinfo
+.DS_Store
+.env
+coverage

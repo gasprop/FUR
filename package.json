@@ -1,0 +1,91 @@
+{
+  "name": "furjs",
+  "version": "1.0.0",
+  "description": "The Universal Interactive Living Fur Typography Engine — photorealistic, physics-driven fur for any text, font or glyph on HTML5 Canvas 2D. Zero dependencies.",
+  "keywords": [
+    "fur",
+    "typography",
+    "canvas",
+    "physics",
+    "creative-coding",
+    "generative-art",
+    "text-effects",
+    "webgl-alternative",
+    "luxury",
+    "pelts",
+    "react",
+    "nextjs"
+  ],
+  "author": "Aryan <thatanearyan>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gasprop/FUR.git"
+  },
+  "homepage": "https://github.com/gasprop/FUR#readme",
+  "bugs": {
+    "url": "https://github.com/gasprop/FUR/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "alternativenames": ["@thatanearyan/fur"],
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./react": {
+      "types": "./dist/react/Fur.d.ts",
+      "import": "./dist/react/Fur.js",
+      "require": "./dist/react/Fur.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md"
+  ],
+  "bin": {
+    "furjs": "./bin/cli.mjs",
+    "fur": "./bin/cli.mjs"
+  },
+  "sideEffects": false,
+  "dependencies": {},
+  "devDependencies": {
+    "tsup": "^8.0.1",
+    "typescript": "^5.4.5",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "react": "^18.3.1"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build",
+    "playground": "node ./bin/cli.mjs"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "browserslist": [
+    "> 0.5%",
+    "last 2 versions",
+    "not dead"
+  ]
+}
