@@ -18,7 +18,7 @@ import { getPreset, type FurPreset } from './Presets.js';
 import { createTunerState, effectiveDpr, tunerTick, probeInitialLevel, DEFAULT_LEVELS, DEFAULT_PIXEL_BUDGET } from './QualityTuner.js';
 import { GIFEncoder, downloadBlob as dlBlob, downloadDataURL as dlURL } from '../utils/Exporters.js';
 import type { WindConfig, InteractiveMode, Shockwave, InfluencePoint } from './Physics.js';
-import { windAt, pointerInfluence, shockwaveAt, breathingScale, gravityFromOrientation, rosetteAt } from './Physics.js';
+import { shockwaveAt, breathingScale, gravityFromOrientation, rosetteAt } from './Physics.js';
 import { MorphEngine, ScrollDriver, type MorphOptions, type ScrollLinkOptions } from './MorphEngine.js';
 
 // ------------------------------------------------------------------
@@ -325,7 +325,6 @@ export class FurEngine implements FurInstance {
     const prevFont = this.options.font;
     const prevWeight = this.options.fontWeight;
     const prevPreset = this.options.preset;
-    const prevColors = this.options.colors;
 
     Object.assign(this.options, opts);
     // Normalize preset/cursor
@@ -510,7 +509,7 @@ export class FurEngine implements FurInstance {
     // Preset glow color modulates strength slightly
   }
 
-  private buildSvgField(W: number, H: number, pathData: string, fontFamily: string, fontWeight: string): ChamferField {
+  private buildSvgField(W: number, H: number, pathData: string, _fontFamily: string, _fontWeight: string): ChamferField {
     const MS = Math.min(0.5, 1100 / W);
     const MW = Math.max(4, Math.round(W * MS));
     const MH = Math.max(4, Math.round(H * MS));

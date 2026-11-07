@@ -22,7 +22,7 @@ export function useFur(
 ): FurInstance | null {
   const instanceRef = useRef<FurInstance | null>(null);
   const optionsRef = useRef(options);
-  const [ready, setReady] = useState(false);
+  const [_ready, setReady] = useState(false);
 
   // Keep options ref fresh for update() diffing
   useEffect(() => {

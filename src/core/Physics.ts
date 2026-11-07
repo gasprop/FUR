@@ -202,7 +202,6 @@ export function shockwaveAt(
   const distFromFront = curR - d;
   // Only displace if within wave band
   if (distFromFront < -waveW || distFromFront > waveW) return { dx: 0, dy: 0 };
-  const envelope = Math.sin((distFromFront / waveW) * Math.PI * 0.5 + Math.PI * 0.5) * 0.5 + 0.5;
   // Actually we want a pulse: gaussian around front
   const sigma = waveW * 0.5;
   const g = Math.exp(-(distFromFront * distFromFront) / (2 * sigma * sigma));
@@ -255,7 +254,7 @@ export function pointerInfluence(
   points: InfluencePoint[],
   strandLen: number,
   radius: number,
-  strand: StrandState
+  _strand: StrandState
 ): { x: number; y: number } {
   if (mode === 'none' || points.length === 0) return { x: 0, y: 0 };
   const r2 = radius * radius;
@@ -297,7 +296,7 @@ export function pointerInfluence(
 
 /** Gravity vector from DeviceOrientation (gamma = left-right, beta = front-back) */
 export function gravityFromOrientation(gamma: number | null, beta: number | null): { gx: number; gy: number } {
-  if (gamma == null || beta == null) return { gx: 0, gy: 0 };
+  if (gamma === null || gamma === undefined || beta === null || beta === undefined) return { gx: 0, gy: 0 };
   // gamma: -90..90 (left/right tilt), beta: -180..180 (front/back)
   // Map to gentle gravity bias — 8px max displacement per axis
   const gx = (gamma / 90) * 8;

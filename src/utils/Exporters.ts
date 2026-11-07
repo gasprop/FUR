@@ -198,7 +198,7 @@ export class GIFEncoder {
     return new Uint8Array(out);
   }
 
-  private buildPalette(frame: ImageData): [number, number, number][] {
+  private buildPalette(_frame: ImageData): [number, number, number][] {
     // Simple median-cut would be ~200 LOC — use uniform cube for now
     const pal: [number, number, number][] = [];
     for (let i = 0; i < 256; i++) {
@@ -216,7 +216,7 @@ export class GIFEncoder {
     return pal;
   }
 
-  private quantize(frame: ImageData, palette: [number, number, number][]): number[] {
+  private quantize(frame: ImageData, _palette: [number, number, number][]): number[] {
     const d = frame.data;
     const out: number[] = [];
     for (let i = 0; i < d.length; i += 4) {

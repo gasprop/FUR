@@ -1131,7 +1131,7 @@ var GIFEncoder = class {
     push(59);
     return new Uint8Array(out);
   }
-  buildPalette(frame) {
+  buildPalette(_frame) {
     const pal = [];
     for (let i = 0; i < 256; i++) {
       if (i < 216) {
@@ -1146,7 +1146,7 @@ var GIFEncoder = class {
     }
     return pal;
   }
-  quantize(frame, palette) {
+  quantize(frame, _palette) {
     const d = frame.data;
     const out = [];
     for (let i = 0; i < d.length; i += 4) {
@@ -1248,7 +1248,7 @@ function breathingScale(tSec, speed = 0.35, amplitude = 0.06) {
   return 1 + Math.sin(tSec * speed * Math.PI * 2) * amplitude;
 }
 function gravityFromOrientation(gamma, beta) {
-  if (gamma == null || beta == null) return { gx: 0, gy: 0 };
+  if (gamma === null || gamma === void 0 || beta === null || beta === void 0) return { gx: 0, gy: 0 };
   const gx = gamma / 90 * 8;
   const gy = beta / 180 * 8;
   return { gx, gy };
@@ -1559,7 +1559,6 @@ var FurEngine = class {
     const prevFont = this.options.font;
     const prevWeight = this.options.fontWeight;
     const prevPreset = this.options.preset;
-    this.options.colors;
     Object.assign(this.options, opts);
     if (opts.interactive !== void 0) {
       this.canvas.style.cursor = opts.interactive === "none" ? "default" : "crosshair";
@@ -1705,7 +1704,7 @@ var FurEngine = class {
     this.furW *= 1 + this.legibility * 0.72;
     this.glowStrength = 0.3 + this.legibility * 0.75;
   }
-  buildSvgField(W, H, pathData, fontFamily, fontWeight) {
+  buildSvgField(W, H, pathData, _fontFamily, _fontWeight) {
     const MS = Math.min(0.5, 1100 / W);
     const MW = Math.max(4, Math.round(W * MS));
     const MH = Math.max(4, Math.round(H * MS));

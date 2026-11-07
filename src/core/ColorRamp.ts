@@ -15,7 +15,7 @@
  *   - Texture / image sampling (pixel-read from an offscreen canvas)
  */
 
-import { FurPreset, getPreset, type FurColors } from './Presets.js';
+import { getPreset, type FurColors } from './Presets.js';
 
 /** Explicit 4-zone colors (hex or any CSS color) */
 export interface DirectColors {

@@ -21,7 +21,7 @@
  * ```
  */
 
-import React, { useEffect, useRef, useImperativeHandle, forwardRef, useCallback } from 'react';
+import React, { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 import { createFur, type FurOptions, type FurInstance } from '../core/FurEngine.js';
 
 export interface FurProps extends FurOptions {

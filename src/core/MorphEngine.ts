@@ -13,7 +13,6 @@
 
 import type { ChamferField } from './ChamferMask.js';
 import { ChamferMask } from './ChamferMask.js';
-import type { FurPreset } from './Presets.js';
 
 export type MorphEasing = 'linear' | 'easeInOut' | 'spring' | 'fur-spring';
 
