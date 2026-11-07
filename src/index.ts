@@ -42,6 +42,12 @@ export type { ExportPNGOptions, ExportGIFOptions } from './utils/Exporters.js';
 
 export type { WindConfig, InteractiveMode, Shockwave, PhysicsOptions, StrandState, InfluencePoint } from './core/Physics.js';
 
+export { MorphEngine, ScrollDriver, ease } from './core/MorphEngine.js';
+export type { MorphOptions, MorphEasing, MorphState, ScrollLinkOptions } from './core/MorphEngine.js';
+
+export { createChamferWorker, buildChamferSync } from './core/ChamferWorker.js';
+export type { ChamferWorkerHandle } from './core/ChamferWorker.js';
+
 // Re-export React entry for convenience (tree-shaken if unused)
 export type { FurProps, FurRef } from './react/Fur.js';
 

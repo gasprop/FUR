@@ -1081,8 +1081,11 @@ var GIFEncoder = class {
   }
   buildSingleFrameGIF(frame) {
     const palette = this.buildPalette(frame);
-    const indices = this.quantize(frame, palette);
-    const lzw = this.lzwEncode(indices, 8);
+    const allLzw = [];
+    for (let fi = 0; fi < this.frames.length; fi++) {
+      const idx = this.quantize(this.frames[fi], palette);
+      allLzw.push(this.lzwEncode(idx, 8));
+    }
     const out = [];
     const push = (...b) => {
       for (const v of b) out.push(v & 255);
@@ -1107,6 +1110,7 @@ var GIFEncoder = class {
     push(3, 1, 0, 0, 0);
     for (let f = 0; f < this.frames.length; f++) {
       const delay = Math.round((this.delays[f] ?? 50) / 10);
+      const curLzw = allLzw[f] ?? allLzw[0];
       push(33, 249, 4, 0);
       pushWord(delay);
       push(0, 0);
@@ -1116,10 +1120,10 @@ var GIFEncoder = class {
       push(0);
       push(8);
       let pos = 0;
-      while (pos < lzw.length) {
-        const chunk = Math.min(255, lzw.length - pos);
+      while (pos < curLzw.length) {
+        const chunk = Math.min(255, curLzw.length - pos);
         push(chunk);
-        for (let i = 0; i < chunk; i++) push(lzw[pos + i]);
+        for (let i = 0; i < chunk; i++) push(curLzw[pos + i]);
         pos += chunk;
       }
       push(0);
@@ -1278,6 +1282,144 @@ function rosetteAt(x, y) {
   return { ring, core };
 }
 
+// src/core/MorphEngine.ts
+var easings = {
+  linear: (t) => t,
+  easeInOut: (t) => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t,
+  spring: (t) => {
+    const s = 1.7;
+    return 1 - Math.cos(t * Math.PI * s) * Math.exp(-t * 3);
+  },
+  "fur-spring": (t) => {
+    const c = Math.cos(t * Math.PI * 2.1);
+    const env = Math.exp(-t * 4.2);
+    return 1 - c * env * 0.45 * (1 - t) - (1 - t) * env * 0.55;
+  }
+};
+function ease(type, t) {
+  const fn = easings[type] ?? easings["fur-spring"];
+  const v = fn(Math.max(0, Math.min(1, t)));
+  return Math.max(0, Math.min(1, v));
+}
+var MorphEngine = class {
+  constructor() {
+    this.state = null;
+    this.mask = new ChamferMask();
+  }
+  start(from, to, opts = {}) {
+    this.state = {
+      from,
+      to,
+      t: 0,
+      active: true,
+      start: performance.now(),
+      duration: opts.duration ?? 900,
+      easing: opts.easing ?? "fur-spring"
+    };
+  }
+  /**
+   * Tick — returns eased progress 0..1. When >=1, marks inactive.
+   * Caller lerps strand arrays with this value.
+   */
+  tick(now = performance.now(), opts = {}) {
+    if (!this.state?.active) return 1;
+    const elapsed = now - this.state.start;
+    const raw = Math.min(1, elapsed / this.state.duration);
+    const eased = ease(this.state.easing, raw);
+    this.state.t = eased;
+    if (opts.onProgress) opts.onProgress(eased);
+    if (raw >= 1) {
+      this.state.active = false;
+      if (opts.onComplete) opts.onComplete();
+      return 1;
+    }
+    return eased;
+  }
+  isActive() {
+    return !!this.state?.active;
+  }
+  progress() {
+    return this.state?.t ?? 1;
+  }
+  cancel() {
+    if (this.state) this.state.active = false;
+  }
+  /** Build target field async (non-blocking) for preview */
+  async buildTargetField(W, H, text, fontFamily, fontWeight, letterSpacing) {
+    return this.mask.build(W, H, { text, fontFamily, fontWeight, letterSpacing, fit: "normal" });
+  }
+};
+var ScrollDriver = class {
+  constructor(apply, morph) {
+    this.apply = apply;
+    this.morph = morph;
+    this.cleanup = null;
+    this.raf = 0;
+    this.lastY = 0;
+    this.vel = 0;
+  }
+  link(opts = {}) {
+    const targetEl = opts.target ? typeof opts.target === "string" ? document.querySelector(opts.target) : opts.target : null;
+    const getProgress = () => {
+      if (targetEl) {
+        const r = targetEl.getBoundingClientRect();
+        const vh = window.innerHeight || 800;
+        const total = r.height + vh;
+        const scrolled = vh - r.top;
+        return Math.max(0, Math.min(1, scrolled / total));
+      }
+      const max = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+      return Math.max(0, Math.min(1, window.scrollY / max));
+    };
+    const onScroll = () => {
+      if (this.raf) return;
+      this.raf = requestAnimationFrame(() => {
+        this.raf = 0;
+        const p = getProgress();
+        const vy = window.scrollY - this.lastY;
+        this.vel = vy;
+        this.lastY = window.scrollY;
+        const patch = {};
+        if (opts.scrubsMorph && opts.scrubsMorph.length >= 2) {
+          const n = opts.scrubsMorph.length;
+          const idx = Math.min(n - 2, Math.floor(p * (n - 1)));
+          const local = p * (n - 1) - idx;
+          const target = local > 0.5 ? opts.scrubsMorph[idx + 1] : opts.scrubsMorph[idx];
+          if (this.morph) this.morph(target);
+        }
+        if (opts.windLink) {
+          const speed = Math.min(2, Math.abs(vy) * 0.04 + 0.5);
+          const dir = vy > 0 ? 90 : 270;
+          patch.wind = { speed, direction: dir, gustiness: 0.45 };
+        }
+        if (opts.breathingLink) {
+          patch.breathing = Math.abs(vy) < 2;
+        }
+        if (opts.map) Object.assign(patch, opts.map(p));
+        if (Object.keys(patch).length) this.apply(patch);
+      });
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll, { passive: true });
+    this.cleanup = () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+      if (this.raf) cancelAnimationFrame(this.raf);
+    };
+    onScroll();
+    return this.cleanup;
+  }
+  unlink() {
+    if (this.cleanup) {
+      this.cleanup();
+      this.cleanup = null;
+    }
+  }
+  velocity() {
+    return this.vel;
+  }
+};
+
 // src/core/FurEngine.ts
 var FurEngine = class {
   constructor(container, opts = {}) {
@@ -1301,6 +1443,12 @@ var FurEngine = class {
     this.palette = [];
     this.presetCache = null;
     this.NB = 14;
+    // Special Feature — Morph + Scroll
+    this.morphEngine = new MorphEngine();
+    this.scrollDriver = null;
+    this.morphFromStrands = null;
+    this.morphToStrands = null;
+    this.morphTargetText = null;
     // Quality tuner
     this.tuner = createTunerState();
     this.levels = DEFAULT_LEVELS;
@@ -1912,6 +2060,14 @@ var FurEngine = class {
         }
         let bodyT = 1 + Math.random() * 2 + Math.pow(lit, 1.55) * 3.3 * (0.45 + 0.55 * tuft) + fill * 1.7;
         bodyT *= 1 - rosetteRing * 0.5 + rosetteCore * 0.16;
+        if (this.options.gradient && this.options.gradient.colors.length >= 2) {
+          const dir = this.options.gradient.direction ?? "horizontal";
+          let t = 0;
+          if (dir === "horizontal") t = jx / Math.max(1, MW);
+          else if (dir === "vertical") t = jy / Math.max(1, MH);
+          else t = (jx / Math.max(1, MW) + jy / Math.max(1, MH)) * 0.5;
+          bodyT += (t - 0.5) * 2.4;
+        }
         if (bodyT < 0) bodyT = 0;
         if (bodyT > 8.5) bodyT = 8.5;
         let ri = bodyT | 0;
@@ -2057,6 +2213,10 @@ var FurEngine = class {
     this._AA = AA;
     const nowMs = now;
     this.shockwaves = this.shockwaves.filter((s) => nowMs - s.t0 < s.duration);
+    if (this.morphEngine.isActive() && this.morphFromStrands && this.morphToStrands && this.strands) {
+      const prog = this.morphEngine.tick(now);
+      lerpStrands(this.strands, this.morphFromStrands, this.morphToStrands, prog);
+    }
     const t0 = performance.now();
     this.renderFrame(dt, AP, AXP, AYP, AVX, AVY, AA);
     const drawMs = performance.now() - t0;
@@ -2123,6 +2283,7 @@ var FurEngine = class {
     const groomMem = this.options.groomMemory ?? 2e3;
     const kkStiff = this.options.stiffness ?? 0.2;
     const kkDamp = this.options.damping ?? 0.862;
+    const mass = Math.max(0.2, Math.min(5, this.options.mass ?? 1));
     const kk = 1 - Math.pow(1 - kkStiff, dt);
     const damp = Math.pow(this.reduceMotion ? 0.74 : kkDamp, dt);
     const tSec = this.tSec;
@@ -2193,8 +2354,8 @@ var FurEngine = class {
           s.GT[i] = 0;
         }
       }
-      let vx = s.VX[i] + (tx - s.BX[i]) * kk;
-      let vy = s.VY[i] + (ty - s.BY[i]) * kk;
+      let vx = s.VX[i] + (tx - s.BX[i]) * kk / mass;
+      let vy = s.VY[i] + (ty - s.BY[i]) * kk / mass;
       vx *= damp;
       vy *= damp;
       let bxv = s.BX[i] + vx;
@@ -2496,14 +2657,29 @@ var FurEngine = class {
     off.width = Math.round(w * scale);
     off.height = Math.round(h * scale);
     const ctx = off.getContext("2d");
-    if (!transparent) {
-      ctx.fillStyle = this.options.background ?? "#07080d";
-      ctx.fillRect(0, 0, off.width, off.height);
+    if (transparent) {
+      ctx.clearRect(0, 0, off.width, off.height);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(this.canvas, 0, 0, off.width, off.height);
+      return off.toDataURL("image/png");
     }
+    ctx.fillStyle = this.options.background ?? "#07080d";
+    ctx.fillRect(0, 0, off.width, off.height);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(this.canvas, 0, 0, off.width, off.height);
     return off.toDataURL("image/png");
+  }
+  /**
+   * generateStaticFallback — SEO / Core Web Vitals helper
+   * Renders a high-res snapshot as data URL to use as <img> poster
+   * before hydration. No animation loop needed.
+   * Used for SSR: <img src={staticDataURL} /> → hydration replaces with live canvas.
+   */
+  async generateStaticFallback(opts = {}) {
+    const s = opts.scale ?? 2;
+    return this.exportPNG({ scale: s, transparent: false });
   }
   async exportGIF(opts = {}) {
     const duration = opts.duration ?? 2500;
@@ -2534,6 +2710,85 @@ var FurEngine = class {
     downloadBlob(blob, opts.filename ?? `fur-${(this.options.text ?? "export").replace(/\s+/g, "-").toLowerCase()}.gif`);
   }
   // ----------------------------------------------------------------
+  // Special: Morph + Scroll — The *actually used* killer feature
+  // ----------------------------------------------------------------
+  async morph(text, opts = {}) {
+    const target = text.slice(0, 256);
+    if (!target || target === this.options.text) return;
+    const fromText = this.options.text ?? "";
+    const duration = opts.duration ?? 900;
+    const easing = opts.easing ?? "fur-spring";
+    this.morphFromStrands = this.strands ? cloneStrands(this.strands) : null;
+    this.morphTargetText = target;
+    const fontFamily = this.options.font ?? "system-ui, sans-serif";
+    const fontWeight = String(this.options.fontWeight ?? 900);
+    const letterSpacing = this.options.letterSpacing ?? 0.025;
+    const savedField = this.field;
+    this.options.text = target;
+    if (opts.preset) {
+      this.options.preset = opts.preset;
+      this.rebuildPalette();
+    }
+    try {
+      const tField = this.chamfer.buildSync(this.W, this.H, { text: target, fontFamily, fontWeight, letterSpacing, fit: this.options.fit ?? "normal" });
+      this.field = tField;
+      this.MS = tField.MS;
+      this.fontSizeCSS = tField.fontSizeCSS;
+      this.glyphHalfStroke = tField.halfStrokeMask;
+      const halfCss = (this.glyphHalfStroke > 0 ? this.glyphHalfStroke : 4) / this.MS;
+      this.baseLen = Math.max(4.4, Math.min(17, halfCss * 0.58)) * (this.presetCache?.physics.lengthScale ?? 1) * (this.options.hairLength ?? 1);
+      this.baseLen *= 1 - Math.min(0.55, Math.max(0, 1 - Math.min(this.W, this.H) / 900)) * 0.16;
+      const wsc = Math.pow(this.fontSizeCSS / 240, 0.55);
+      this.furW = (wsc < 0.72 ? 0.72 : wsc > 1.2 ? 1.2 : wsc) * (1 + Math.max(0, 1 - Math.min(this.W, this.H) / 900) * 0.72);
+      this.buildBase();
+      try {
+        this.buildGlow();
+      } catch {
+      }
+      this.buildStrands(true);
+      this.morphToStrands = this.strands ? cloneStrands(this.strands) : null;
+    } catch {
+    }
+    this.field = savedField;
+    if (savedField) {
+      this.MS = savedField.MS;
+      this.fontSizeCSS = savedField.fontSizeCSS;
+      this.glyphHalfStroke = savedField.halfStrokeMask;
+    }
+    this.options.text = fromText;
+    if (this.morphFromStrands) this.strands = cloneStrands(this.morphFromStrands);
+    this.morphEngine.start(fromText, target, { duration, easing, preset: opts.preset });
+    return new Promise((resolve) => {
+      const check = () => {
+        if (!this.morphEngine.isActive()) {
+          this.options.text = target;
+          this.rebuild();
+          this.morphFromStrands = null;
+          this.morphToStrands = null;
+          this.morphTargetText = null;
+          if (opts.onComplete) opts.onComplete();
+          resolve();
+        } else requestAnimationFrame(check);
+      };
+      requestAnimationFrame(check);
+    });
+  }
+  linkToScroll(opts = {}) {
+    if (!this.scrollDriver) this.scrollDriver = new ScrollDriver((patch) => this.update(patch), (t) => {
+      if (t !== this.options.text) this.morph(t, { duration: 600, easing: "easeInOut" }).catch(() => {
+      });
+    });
+    const off = this.scrollDriver.link(opts);
+    this.cleanupFns.push(off);
+    return off;
+  }
+  unlinkScroll() {
+    if (this.scrollDriver) {
+      this.scrollDriver.unlink();
+      this.scrollDriver = null;
+    }
+  }
+  // ----------------------------------------------------------------
   // Destroy
   // ----------------------------------------------------------------
   destroy() {
@@ -2542,6 +2797,8 @@ var FurEngine = class {
       cancelAnimationFrame(this.raf);
       this.raf = 0;
     }
+    this.unlinkScroll();
+    if (this.morphEngine) this.morphEngine.cancel();
     for (const fn of this.cleanupFns) try {
       fn();
     } catch {
@@ -2552,12 +2809,245 @@ var FurEngine = class {
     if (this.chamfer) this.chamfer.destroy();
   }
 };
+function cloneStrands(s) {
+  return {
+    PX: new Float32Array(s.PX),
+    PY: new Float32Array(s.PY),
+    UX: new Float32Array(s.UX),
+    UY: new Float32Array(s.UY),
+    LEN: new Float32Array(s.LEN),
+    PH: new Float32Array(s.PH),
+    AMP: new Float32Array(s.AMP),
+    RI: new Uint8Array(s.RI),
+    TI: new Uint8Array(s.TI),
+    CURL: new Float32Array(s.CURL),
+    NX: new Float32Array(s.NX),
+    NY: new Float32Array(s.NY),
+    BX: new Float32Array(s.BX),
+    BY: new Float32Array(s.BY),
+    VX: new Float32Array(s.VX),
+    VY: new Float32Array(s.VY),
+    GX: new Float32Array(s.GX),
+    GY: new Float32Array(s.GY),
+    GT: new Float64Array(s.GT),
+    RR: new Float32Array(s.RR),
+    RC: new Float32Array(s.RC),
+    GL: new Uint8Array(s.GL),
+    N: s.N
+  };
+}
+function lerpStrands(cur, from, to, t) {
+  const n = Math.min(cur.N, from.N, to.N);
+  for (let i = 0; i < n; i++) {
+    cur.PX[i] = from.PX[i] + (to.PX[i] - from.PX[i]) * t;
+    cur.PY[i] = from.PY[i] + (to.PY[i] - from.PY[i]) * t;
+    cur.UX[i] = from.UX[i] + (to.UX[i] - from.UX[i]) * t;
+    cur.UY[i] = from.UY[i] + (to.UY[i] - from.UY[i]) * t;
+    cur.LEN[i] = from.LEN[i] + (to.LEN[i] - from.LEN[i]) * t;
+    cur.BX[i] = from.BX[i] * (1 - t) + to.BX[i] * t;
+    cur.BY[i] = from.BY[i] * (1 - t) + to.BY[i] * t;
+  }
+}
 function createFur(container, options = {}) {
   return new FurEngine(container, options);
 }
 
 // src/index.ts
 init_FontLoader();
+
+// src/core/ChamferWorker.ts
+var workerScript = `
+self.onmessage = (e) => {
+  const { id, MW, MH, alpha } = e.data;
+  try {
+    const n = MW * MH;
+    const dist = new Float32Array(n);
+    const vx = new Float32Array(n);
+    const vy = new Float32Array(n);
+    const INF = 1e9;
+    for (let i=0;i<n;i++) {
+      if (alpha[i] > 128) { dist[i]=INF; vx[i]=0; vy[i]=0; }
+      else { dist[i]=0; vx[i]=0; vy[i]=0; }
+    }
+    const D1=1, D2=1.41421356;
+    for (let y=0;y<MH;y++) for(let x=0;x<MW;x++) {
+      const i=y*MW+x; if(dist[i]===0) continue;
+      let best=dist[i],bx=vx[i],by=vy[i];
+      if(x>0){ let j=i-1,d=dist[j]+D1; if(d<best){best=d;bx=vx[j]-1;by=vy[j];} if(y>0){j=i-MW-1;d=dist[j]+D2; if(d<best){best=d;bx=vx[j]-1;by=vy[j]-1;}}}
+      if(y>0){ let j2=i-MW,d2=dist[j2]+D1; if(d2<best){best=d2;bx=vx[j2];by=vy[j2]-1;} if(x<MW-1){j2=i-MW+1;d2=dist[j2]+D2; if(d2<best){best=d2;bx=vx[j2]+1;by=vy[j2]-1;}}}
+      dist[i]=best; vx[i]=bx; vy[i]=by;
+    }
+    for(let y=MH-1;y>=0;y--) for(let x=MW-1;x>=0;x--){
+      const i=y*MW+x; if(dist[i]===0) continue;
+      let best=dist[i],bx=vx[i],by=vy[i];
+      if(x<MW-1){ let j=i+1,d=dist[j]+D1; if(d<best){best=d;bx=vx[j]+1;by=vy[j];} if(y<MH-1){j=i+MW+1;d=dist[j]+D2; if(d<best){best=d;bx=vx[j]+1;by=vy[j]+1;}}}
+      if(y<MH-1){ let j2=i+MW,d2=dist[j2]+D1; if(d2<best){best=d2;bx=vx[j2];by=vy[j2]+1;} if(x>0){j2=i+MW-1;d2=dist[j2]+D2; if(d2<best){best=d2;bx=vx[j2]-1;by=vy[j2]+1;}}}
+      dist[i]=best; vx[i]=bx; vy[i]=by;
+    }
+    let mx=0; for(let i=0;i<n;i++) if(alpha[i]>128 && dist[i]>mx && dist[i]<INF*0.5) mx=dist[i];
+    if(mx<1) mx=4;
+    self.postMessage({id, ndx: vx, ndy: vy, halfStroke: mx}, [vx.buffer, vy.buffer]);
+  } catch(err){
+    self.postMessage({id, error: String(err)});
+  }
+};
+`;
+var workerUrl = null;
+function getWorkerUrl() {
+  if (typeof window === "undefined" || typeof Worker === "undefined" || typeof Blob === "undefined") return null;
+  if (workerUrl) return workerUrl;
+  try {
+    const blob = new Blob([workerScript], { type: "application/javascript" });
+    workerUrl = URL.createObjectURL(blob);
+    return workerUrl;
+  } catch {
+    return null;
+  }
+}
+function createChamferWorker() {
+  const url = getWorkerUrl();
+  if (!url) return null;
+  let w;
+  try {
+    w = new Worker(url);
+  } catch {
+    return null;
+  }
+  let nextId = 1;
+  const pending = /* @__PURE__ */ new Map();
+  w.onmessage = (e) => {
+    const { id, ndx, ndy, halfStroke, error } = e.data;
+    const p = pending.get(id);
+    if (!p) return;
+    pending.delete(id);
+    if (error) p.reject(new Error(error));
+    else p.resolve({ ndx, ndy, halfStroke });
+  };
+  w.onerror = (ev) => {
+    for (const [, p] of pending) p.reject(ev);
+    pending.clear();
+  };
+  return {
+    build(MW, MH, alpha) {
+      return new Promise((resolve, reject) => {
+        const id = nextId++;
+        pending.set(id, { resolve, reject });
+        const copy = new Uint8Array(alpha);
+        try {
+          w.postMessage({ id, MW, MH, alpha: copy }, [copy.buffer]);
+        } catch {
+          w.postMessage({ id, MW, MH, alpha: copy });
+        }
+      });
+    },
+    terminate() {
+      try {
+        w.terminate();
+      } catch {
+      }
+      pending.clear();
+    }
+  };
+}
+function buildChamferSync(MW, MH, alpha) {
+  const n = MW * MH;
+  const dist = new Float32Array(n), vx = new Float32Array(n), vy = new Float32Array(n);
+  const INF = 1e9;
+  for (let i = 0; i < n; i++) if (alpha[i] > 128) {
+    dist[i] = INF;
+  } else dist[i] = 0;
+  const D1 = 1, D2 = 1.41421356;
+  for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
+    const i = y * MW + x;
+    if (dist[i] === 0) continue;
+    let best = dist[i], bx = vx[i], by = vy[i];
+    if (x > 0) {
+      let j = i - 1, d = dist[j] + D1;
+      if (d < best) {
+        best = d;
+        bx = vx[j] - 1;
+        by = vy[j];
+      }
+      if (y > 0) {
+        j = i - MW - 1;
+        d = dist[j] + D2;
+        if (d < best) {
+          best = d;
+          bx = vx[j] - 1;
+          by = vy[j] - 1;
+        }
+      }
+    }
+    if (y > 0) {
+      let j2 = i - MW, d2 = dist[j2] + D1;
+      if (d2 < best) {
+        best = d2;
+        bx = vx[j2];
+        by = vy[j2] - 1;
+      }
+      if (x < MW - 1) {
+        j2 = i - MW + 1;
+        d2 = dist[j2] + D2;
+        if (d2 < best) {
+          best = d2;
+          bx = vx[j2] + 1;
+          by = vy[j2] - 1;
+        }
+      }
+    }
+    dist[i] = best;
+    vx[i] = bx;
+    vy[i] = by;
+  }
+  for (let y = MH - 1; y >= 0; y--) for (let x = MW - 1; x >= 0; x--) {
+    const i = y * MW + x;
+    if (dist[i] === 0) continue;
+    let best = dist[i], bx = vx[i], by = vy[i];
+    if (x < MW - 1) {
+      let j = i + 1, d = dist[j] + D1;
+      if (d < best) {
+        best = d;
+        bx = vx[j] + 1;
+        by = vy[j];
+      }
+      if (y < MH - 1) {
+        j = i + MW + 1;
+        d = dist[j] + D2;
+        if (d < best) {
+          best = d;
+          bx = vx[j] + 1;
+          by = vy[j] + 1;
+        }
+      }
+    }
+    if (y < MH - 1) {
+      let j2 = i + MW, d2 = dist[j2] + D1;
+      if (d2 < best) {
+        best = d2;
+        bx = vx[j2];
+        by = vy[j2] + 1;
+      }
+      if (x > 0) {
+        j2 = i + MW - 1;
+        d2 = dist[j2] + D2;
+        if (d2 < best) {
+          best = d2;
+          bx = vx[j2] - 1;
+          by = vy[j2] + 1;
+        }
+      }
+    }
+    dist[i] = best;
+    vx[i] = bx;
+    vy[i] = by;
+  }
+  let mx = 0;
+  for (let i = 0; i < n; i++) if (alpha[i] > 128 && dist[i] > mx && dist[i] < INF * 0.5) mx = dist[i];
+  if (mx < 1) mx = 4;
+  return { ndx: vx, ndy: vy, halfStroke: mx };
+}
+
+// src/index.ts
 var VERSION = "1.0.0";
 
 exports.ChamferMask = ChamferMask;
@@ -2566,17 +3056,22 @@ exports.DEFAULT_PIXEL_BUDGET = DEFAULT_PIXEL_BUDGET;
 exports.FurEngine = FurEngine;
 exports.GIFEncoder = GIFEncoder;
 exports.IMPERIAL_VELVET_VARIANTS = IMPERIAL_VELVET_VARIANTS;
+exports.MorphEngine = MorphEngine;
 exports.PRESETS = PRESETS;
 exports.PRESET_NAMES = PRESET_NAMES;
+exports.ScrollDriver = ScrollDriver;
 exports.VERSION = VERSION;
+exports.buildChamferSync = buildChamferSync;
 exports.buildPalette = buildPalette;
 exports.canvasToPNG = canvasToPNG;
 exports.captureGIFFromCanvas = captureGIFFromCanvas;
+exports.createChamferWorker = createChamferWorker;
 exports.createFur = createFur;
 exports.createTextureSampler = createTextureSampler;
 exports.createTunerState = createTunerState;
 exports.downloadBlob = downloadBlob;
 exports.downloadDataURL = downloadDataURL;
+exports.ease = ease;
 exports.effectiveDpr = effectiveDpr;
 exports.ensureFontLoaded = ensureFontLoaded;
 exports.ensureFontsLoaded = ensureFontsLoaded;

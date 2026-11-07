@@ -1,4 +1,4 @@
-export { F as FurEngine, a as FurInstance, b as FurOptions, c as FurProps, d as FurRef, I as InfluencePoint, e as InteractiveMode, P as PhysicsOptions, S as Shockwave, f as StrandState, W as WindConfig, g as createFur } from './Fur-Cd4R7x6F.js';
+export { C as ChamferField, a as ChamferMask, b as ChamferMaskOptions, F as FurEngine, c as FurInstance, d as FurOptions, e as FurProps, f as FurRef, I as InfluencePoint, g as InteractiveMode, M as MorphEasing, h as MorphEngine, i as MorphOptions, j as MorphState, P as PhysicsOptions, S as ScrollDriver, k as ScrollLinkOptions, l as Shockwave, m as StrandState, W as WindConfig, n as createFur, o as ease } from './Fur-BQkBKiCp.js';
 import 'react';
 
 /**
@@ -202,82 +202,6 @@ declare function getPaletteColors(entries: RampEntry[]): string[];
 declare function getPresetColors(presetName?: string): FurColors;
 
 /**
- * ChamferMask — Offscreen Glyph Rasterization & Chamfer Distance Field
- *
- * 1. Rasterizes any text (any font, weight, letter-spacing, unicode,
- *    multi-line) into a small offscreen mask.
- * 2. Builds a chamfer distance transform: for each interior pixel,
- *    the vector to the nearest outside pixel (the "grow direction").
- * 3. Provides sampling helpers for strand root distribution.
- *
- * The mask is kept small (W * MS pixels, MS = 0.22-0.50 scale factor)
- * so the O(WH) chamfer passes are cheap. All coordinates are converted
- * back to CSS pixels via toCss = 1/MS.
- *
- * Based on the panther.js chamfer implementation, generalized for
- * arbitrary text + fonts.
- */
-/** Options for glyph mask */
-interface ChamferMaskOptions {
-    /** Text to rasterize (any unicode, multi-line via \n) */
-    text: string;
-    /** Font family CSS string */
-    fontFamily: string;
-    /** Font weight 100-900 */
-    fontWeight?: number | string;
-    /** Font style normal | italic */
-    fontStyle?: string;
-    /** Letter spacing as fraction of fontSize (e.g. 0.025) */
-    letterSpacing?: number;
-    /** Fit mode: tight = hug word, normal = pad */
-    fit?: 'tight' | 'normal';
-}
-/** Result of mask build */
-interface ChamferField {
-    /** Mask width (MS-scaled) */
-    MW: number;
-    /** Mask height */
-    MH: number;
-    /** Inverse scale: CSS px = mask px * MSinv */
-    MS: number;
-    /** CSS fontSize used */
-    fontSizeCSS: number;
-    /** Track (letter-spacing) actually used */
-    trackUsed: number;
-    /** Alpha channel (0-255) for each mask pixel */
-    alpha: Uint8Array;
-    /** Vector to nearest outside pixel — X component */
-    ndx: Float32Array;
-    /** Vector to nearest outside pixel — Y component */
-    ndy: Float32Array;
-    /** Half thickest stem in mask px (for fur length scaling) */
-    halfStrokeMask: number;
-    /** Offscreen mask canvas (for base/glow rendering reuse) */
-    maskCanvas: HTMLCanvasElement;
-    /** Mask 2D context */
-    maskCtx: CanvasRenderingContext2D;
-}
-/** Reusable mask builder */
-declare class ChamferMask {
-    private canvas;
-    private ctx;
-    constructor();
-    /**
-     * Build the complete chamfer field for given text/layout.
-     * Ensures custom font is loaded before measuring.
-     */
-    build(W: number, H: number, opts: ChamferMaskOptions): Promise<ChamferField>;
-    /** Synchronous fallback without font loading wait (for immediate first paint) */
-    buildSync(W: number, H: number, opts: ChamferMaskOptions): ChamferField;
-    private measureGlyphs;
-    private drawGlyphs;
-    private fitFontSize;
-    private buildChamfer;
-    /** Destroy canvas refs */
-    destroy(): void;
-}
-
-/**
  * QualityTuner — Adaptive Performance & Pixel Budget
  *
  * Retains and refines panther.js's self-healing frame monitor:
@@ -437,6 +361,25 @@ declare class GIFEncoder {
 /** Convenience: capture current animation loop frames via requestAnimationFrame */
 declare function captureGIFFromCanvas(canvas: HTMLCanvasElement, durationMs?: number, fps?: number): Promise<Blob>;
 
+interface ChamferWorkerHandle {
+    build(MW: number, MH: number, alpha: Uint8Array): Promise<{
+        ndx: Float32Array;
+        ndy: Float32Array;
+        halfStroke: number;
+    }>;
+    terminate(): void;
+}
+declare function createChamferWorker(): ChamferWorkerHandle | null;
+/**
+ * Sync fallback (main-thread) — identical to ChamferMask.buildChamfer but standalone
+ * for when Worker is unavailable or CSP blocks blob:.
+ */
+declare function buildChamferSync(MW: number, MH: number, alpha: Uint8Array): {
+    ndx: Float32Array;
+    ndy: Float32Array;
+    halfStroke: number;
+};
+
 /**
  * furjs — The Universal Interactive Living Fur Typography Engine
  *
@@ -460,4 +403,4 @@ declare function captureGIFFromCanvas(canvas: HTMLCanvasElement, durationMs?: nu
 
 declare const VERSION = "1.0.0";
 
-export { type ChamferField, ChamferMask, type ChamferMaskOptions, DEFAULT_LEVELS, DEFAULT_PIXEL_BUDGET, type DirectColors, type ExportGIFOptions, type ExportPNGOptions, type FontLoadOptions, type FurColors, type FurPreset, GIFEncoder, type GradientConfig, IMPERIAL_VELVET_VARIANTS, PRESETS, PRESET_NAMES, type PaletteBuildOptions, type PresetName, type PresetPhysics, type QualityLevel, type RampEntry, type TextureConfig, type TunerState, VERSION, buildPalette, canvasToPNG, captureGIFFromCanvas, createTextureSampler, createTunerState, downloadBlob, downloadDataURL, effectiveDpr, ensureFontLoaded, ensureFontsLoaded, getPaletteColors, getPreset, getPresetColors, isValidPreset, parseColor, sampleTexture, supportsFontLoadingAPI, tunerTick };
+export { type ChamferWorkerHandle, DEFAULT_LEVELS, DEFAULT_PIXEL_BUDGET, type DirectColors, type ExportGIFOptions, type ExportPNGOptions, type FontLoadOptions, type FurColors, type FurPreset, GIFEncoder, type GradientConfig, IMPERIAL_VELVET_VARIANTS, PRESETS, PRESET_NAMES, type PaletteBuildOptions, type PresetName, type PresetPhysics, type QualityLevel, type RampEntry, type TextureConfig, type TunerState, VERSION, buildChamferSync, buildPalette, canvasToPNG, captureGIFFromCanvas, createChamferWorker, createTextureSampler, createTunerState, downloadBlob, downloadDataURL, effectiveDpr, ensureFontLoaded, ensureFontsLoaded, getPaletteColors, getPreset, getPresetColors, isValidPreset, parseColor, sampleTexture, supportsFontLoadingAPI, tunerTick };

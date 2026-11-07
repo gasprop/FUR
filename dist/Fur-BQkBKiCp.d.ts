@@ -115,6 +115,177 @@ interface InfluencePoint {
 }
 
 /**
+ * ChamferMask — Offscreen Glyph Rasterization & Chamfer Distance Field
+ *
+ * 1. Rasterizes any text (any font, weight, letter-spacing, unicode,
+ *    multi-line) into a small offscreen mask.
+ * 2. Builds a chamfer distance transform: for each interior pixel,
+ *    the vector to the nearest outside pixel (the "grow direction").
+ * 3. Provides sampling helpers for strand root distribution.
+ *
+ * The mask is kept small (W * MS pixels, MS = 0.22-0.50 scale factor)
+ * so the O(WH) chamfer passes are cheap. All coordinates are converted
+ * back to CSS pixels via toCss = 1/MS.
+ *
+ * Based on the panther.js chamfer implementation, generalized for
+ * arbitrary text + fonts.
+ */
+/** Options for glyph mask */
+interface ChamferMaskOptions {
+    /** Text to rasterize (any unicode, multi-line via \n) */
+    text: string;
+    /** Font family CSS string */
+    fontFamily: string;
+    /** Font weight 100-900 */
+    fontWeight?: number | string;
+    /** Font style normal | italic */
+    fontStyle?: string;
+    /** Letter spacing as fraction of fontSize (e.g. 0.025) */
+    letterSpacing?: number;
+    /** Fit mode: tight = hug word, normal = pad */
+    fit?: 'tight' | 'normal';
+}
+/** Result of mask build */
+interface ChamferField {
+    /** Mask width (MS-scaled) */
+    MW: number;
+    /** Mask height */
+    MH: number;
+    /** Inverse scale: CSS px = mask px * MSinv */
+    MS: number;
+    /** CSS fontSize used */
+    fontSizeCSS: number;
+    /** Track (letter-spacing) actually used */
+    trackUsed: number;
+    /** Alpha channel (0-255) for each mask pixel */
+    alpha: Uint8Array;
+    /** Vector to nearest outside pixel — X component */
+    ndx: Float32Array;
+    /** Vector to nearest outside pixel — Y component */
+    ndy: Float32Array;
+    /** Half thickest stem in mask px (for fur length scaling) */
+    halfStrokeMask: number;
+    /** Offscreen mask canvas (for base/glow rendering reuse) */
+    maskCanvas: HTMLCanvasElement;
+    /** Mask 2D context */
+    maskCtx: CanvasRenderingContext2D;
+}
+/** Reusable mask builder */
+declare class ChamferMask {
+    private canvas;
+    private ctx;
+    constructor();
+    /**
+     * Build the complete chamfer field for given text/layout.
+     * Ensures custom font is loaded before measuring.
+     */
+    build(W: number, H: number, opts: ChamferMaskOptions): Promise<ChamferField>;
+    /** Synchronous fallback without font loading wait (for immediate first paint) */
+    buildSync(W: number, H: number, opts: ChamferMaskOptions): ChamferField;
+    private measureGlyphs;
+    private drawGlyphs;
+    private fitFontSize;
+    private buildChamfer;
+    /** Destroy canvas refs */
+    destroy(): void;
+}
+
+/**
+ * MorphEngine — Text-to-Text Fur Morph for furjs (Special Feature)
+ *
+ * The Killer Feature people actually use: hero text that morphs like living fur.
+ * e.g. "FUR" → "ROYAL" → "SABLE" on scroll or autoplay.
+ *
+ * Uses chamfer field interpolation + strand FLIP: captures A→B strand endpoints,
+ * then tweens PX/PY/LEN/RI/TI via spring easing. Keeps 60FPS because it reuses
+ * the existing spring system instead of rebuilding 12K strands per frame.
+ *
+ * Widely used: landing hero loops, product name rotations, pricing tier switches.
+ */
+
+type MorphEasing = 'linear' | 'easeInOut' | 'spring' | 'fur-spring';
+interface MorphOptions {
+    /** Duration ms (default 900) */
+    duration?: number;
+    /** Easing — 'fur-spring' feels organic (uses same 0.862 damp) */
+    easing?: MorphEasing;
+    /** Target preset to cross-fade (colors morph too) */
+    preset?: string;
+    /** Keep groom state through morph (default false) */
+    keepGroom?: boolean;
+    /** Called each frame with progress 0..1 */
+    onProgress?: (p: number) => void;
+    /** Called on complete */
+    onComplete?: () => void;
+}
+interface MorphState {
+    from: string;
+    to: string;
+    t: number;
+    active: boolean;
+    start: number;
+    duration: number;
+    easing: MorphEasing;
+}
+declare function ease(type: MorphEasing, t: number): number;
+/**
+ * Morph driver — stateless helper that FurEngine owns.
+ * FurEngine calls `morphTick(now)` each frame; when active it interpolates
+ * strand roots and returns blended ChamferField progress.
+ */
+declare class MorphEngine {
+    state: MorphState | null;
+    private mask;
+    start(from: string, to: string, opts?: MorphOptions): void;
+    /**
+     * Tick — returns eased progress 0..1. When >=1, marks inactive.
+     * Caller lerps strand arrays with this value.
+     */
+    tick(now?: number, opts?: MorphOptions): number;
+    isActive(): boolean;
+    progress(): number;
+    cancel(): void;
+    /** Build target field async (non-blocking) for preview */
+    buildTargetField(W: number, H: number, text: string, fontFamily: string, fontWeight: string, letterSpacing: number): Promise<ChamferField>;
+}
+/**
+ * ScrollDriver — links scrollY or element intersection to fur params.
+ *
+ * Used for: parallax wind, scrubbed morphs, “fur reveals as you scroll” stories.
+ * Zero deps — uses scroll listener + rAF, auto-cleans on destroy.
+ *
+ * @example
+ * fur.linkToScroll({ target: '#hero', scrubsMorph: ['FUR','ROYAL','SABLE'] })
+ * fur.linkToScroll({ windLink: true }) // wind speed = scrollVelocity * 0.04
+ */
+interface ScrollLinkOptions {
+    /** Element to track — default window */
+    target?: HTMLElement | string;
+    /** If set, morph through this text array as you scroll 0→1 */
+    scrubsMorph?: string[];
+    /** Link wind speed to scroll velocity */
+    windLink?: boolean;
+    /** Link breathing to scroll (pause when scrolling) */
+    breathingLink?: boolean;
+    /** Custom mapper: scrollProgress 0..1 → partial FurOptions */
+    map?: (progress: number) => Record<string, any>;
+    /** Throttle ms (default 16) */
+    throttle?: number;
+}
+declare class ScrollDriver {
+    private apply;
+    private morph?;
+    private cleanup;
+    private raf;
+    private lastY;
+    private vel;
+    constructor(apply: (opts: Record<string, any>) => void, morph?: ((t: string) => void) | undefined);
+    link(opts?: ScrollLinkOptions): () => void;
+    unlink(): void;
+    velocity(): number;
+}
+
+/**
  * FurEngine — Main Canvas 2D Render Loop & Lifecycle for furjs
  *
  * Integrates:
@@ -230,6 +401,18 @@ interface FurInstance {
         fps?: number;
         filename?: string;
     }): Promise<void>;
+    /** Special — morph to new text with fur-spring easing */
+    morph(text: string, opts?: MorphOptions): Promise<void>;
+    /** Special — link fur wind/morph to scroll */
+    linkToScroll(opts?: ScrollLinkOptions): () => void;
+    /** Unlink scroll driver */
+    unlinkScroll(): void;
+    /** SEO: static poster PNG for SSR / Core Web Vitals */
+    generateStaticFallback(opts?: {
+        scale?: number;
+        width?: number;
+        height?: number;
+    }): Promise<string>;
 }
 declare class FurEngine implements FurInstance {
     container: HTMLElement;
@@ -258,6 +441,11 @@ declare class FurEngine implements FurInstance {
     private palette;
     private presetCache;
     private NB;
+    private morphEngine;
+    private scrollDriver;
+    private morphFromStrands;
+    private morphToStrands;
+    private morphTargetText;
     private tuner;
     private levels;
     private pixelBudget;
@@ -313,6 +501,17 @@ declare class FurEngine implements FurInstance {
         scale?: number;
         transparent?: boolean;
     }): Promise<string>;
+    /**
+     * generateStaticFallback — SEO / Core Web Vitals helper
+     * Renders a high-res snapshot as data URL to use as <img> poster
+     * before hydration. No animation loop needed.
+     * Used for SSR: <img src={staticDataURL} /> → hydration replaces with live canvas.
+     */
+    generateStaticFallback(opts?: {
+        scale?: number;
+        width?: number;
+        height?: number;
+    }): Promise<string>;
     exportGIF(opts?: {
         duration?: number;
         fps?: number;
@@ -326,19 +525,11 @@ declare class FurEngine implements FurInstance {
         fps?: number;
         filename?: string;
     }): Promise<void>;
+    morph(text: string, opts?: MorphOptions): Promise<void>;
+    linkToScroll(opts?: ScrollLinkOptions): () => void;
+    unlinkScroll(): void;
     destroy(): void;
 }
-/**
- * Vanilla JS factory — framework-agnostic entry point.
- *
- * @example
- * ```ts
- * import { createFur } from 'furjs';
- * const fur = createFur('#hero', { text: 'ROYAL', preset: 'royal-sable' });
- * fur.update({ text: 'KRONOS' });
- * fur.destroy();
- * ```
- */
 declare function createFur(container: HTMLElement | string, options?: FurOptions): FurInstance;
 
 /**
@@ -381,4 +572,4 @@ interface FurProps extends FurOptions {
 type FurRef = FurInstance | null;
 declare const Fur: React.ForwardRefExoticComponent<FurProps & React.RefAttributes<FurRef>>;
 
-export { FurEngine as F, type InfluencePoint as I, type PhysicsOptions as P, type Shockwave as S, type WindConfig as W, type FurInstance as a, type FurOptions as b, type FurProps as c, type FurRef as d, type InteractiveMode as e, type StrandState as f, createFur as g, Fur as h };
+export { type ChamferField as C, FurEngine as F, type InfluencePoint as I, type MorphEasing as M, type PhysicsOptions as P, ScrollDriver as S, type WindConfig as W, ChamferMask as a, type ChamferMaskOptions as b, type FurInstance as c, type FurOptions as d, type FurProps as e, type FurRef as f, type InteractiveMode as g, MorphEngine as h, type MorphOptions as i, type MorphState as j, type ScrollLinkOptions as k, type Shockwave as l, type StrandState as m, createFur as n, ease as o, Fur as p };

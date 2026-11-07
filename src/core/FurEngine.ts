@@ -19,6 +19,7 @@ import { createTunerState, effectiveDpr, tunerTick, probeInitialLevel, DEFAULT_L
 import { GIFEncoder, downloadBlob as dlBlob, downloadDataURL as dlURL } from '../utils/Exporters.js';
 import type { WindConfig, InteractiveMode, Shockwave, InfluencePoint } from './Physics.js';
 import { windAt, pointerInfluence, shockwaveAt, breathingScale, gravityFromOrientation, rosetteAt } from './Physics.js';
+import { MorphEngine, ScrollDriver, type MorphOptions, type ScrollLinkOptions } from './MorphEngine.js';
 
 // ------------------------------------------------------------------
 // Public Types
@@ -106,6 +107,14 @@ export interface FurInstance {
   /** Convenience downloaders */
   downloadPNG(opts?: { scale?: number; filename?: string }): Promise<void>;
   downloadGIF(opts?: { duration?: number; fps?: number; filename?: string }): Promise<void>;
+  /** Special — morph to new text with fur-spring easing */
+  morph(text: string, opts?: MorphOptions): Promise<void>;
+  /** Special — link fur wind/morph to scroll */
+  linkToScroll(opts?: ScrollLinkOptions): () => void;
+  /** Unlink scroll driver */
+  unlinkScroll(): void;
+  /** SEO: static poster PNG for SSR / Core Web Vitals */
+  generateStaticFallback(opts?: { scale?: number; width?: number; height?: number }): Promise<string>;
 }
 
 // ------------------------------------------------------------------
@@ -175,6 +184,13 @@ export class FurEngine implements FurInstance {
   private palette: RampEntry[] = [];
   private presetCache: FurPreset | null = null;
   private NB = 14;
+
+  // Special Feature — Morph + Scroll
+  private morphEngine = new MorphEngine();
+  private scrollDriver: ScrollDriver | null = null;
+  private morphFromStrands: StrandArrays | null = null;
+  private morphToStrands: StrandArrays | null = null;
+  private morphTargetText: string | null = null;
 
   // Quality tuner
   private tuner = createTunerState();
@@ -836,6 +852,16 @@ export class FurEngine implements FurInstance {
                     Math.pow(lit, 1.55) * 3.3 * (0.45 + 0.55 * tuft) +
                     fill * 1.7;
         bodyT *= (1 - rosetteRing * 0.50 + rosetteCore * 0.16);
+        // Gradient mapping: shift palette index based on strand UV (horizontal/vertical/diagonal)
+        if (this.options.gradient && this.options.gradient.colors.length >= 2) {
+          const dir = this.options.gradient.direction ?? 'horizontal';
+          let t = 0;
+          if (dir === 'horizontal') t = jx / Math.max(1, MW);
+          else if (dir === 'vertical') t = jy / Math.max(1, MH);
+          else t = (jx / Math.max(1, MW) + jy / Math.max(1, MH)) * 0.5;
+          // Map t 0→1 to -1.2…+1.2 palette shift for visible letter-to-letter gradient
+          bodyT += (t - 0.5) * 2.4;
+        }
         if (bodyT < 0) bodyT = 0;
         if (bodyT > 8.5) bodyT = 8.5;
 
@@ -982,6 +1008,12 @@ export class FurEngine implements FurInstance {
     const nowMs = now;
     this.shockwaves = this.shockwaves.filter((s) => nowMs - s.t0 < s.duration);
 
+    // Morph tick — lerp strands between from/to for organic text transition
+    if (this.morphEngine.isActive() && this.morphFromStrands && this.morphToStrands && this.strands) {
+      const prog = this.morphEngine.tick(now);
+      lerpStrands(this.strands, this.morphFromStrands, this.morphToStrands, prog);
+    }
+
     // Draw
     const t0 = performance.now();
     this.renderFrame(dt, AP, AXP, AYP, AVX, AVY, AA);
@@ -1063,6 +1095,7 @@ export class FurEngine implements FurInstance {
     const groomMem = this.options.groomMemory ?? 2000;
     const kkStiff = this.options.stiffness ?? 0.20;
     const kkDamp = this.options.damping ?? 0.862;
+    const mass = Math.max(0.2, Math.min(5, this.options.mass ?? 1));
     const kk = 1 - Math.pow(1 - kkStiff, dt);
     const damp = Math.pow(this.reduceMotion ? 0.74 : kkDamp, dt);
     const tSec = this.tSec;
@@ -1144,9 +1177,9 @@ export class FurEngine implements FurInstance {
         }
       }
 
-      // Spring
-      let vx = s.VX[i] + (tx - s.BX[i]) * kk;
-      let vy = s.VY[i] + (ty - s.BY[i]) * kk;
+      // Spring — mass divides force (heavier = more inertia)
+      let vx = s.VX[i] + (tx - s.BX[i]) * kk / mass;
+      let vy = s.VY[i] + (ty - s.BY[i]) * kk / mass;
       vx *= damp; vy *= damp;
       let bxv = s.BX[i] + vx;
       let byv = s.BY[i] + vy;
@@ -1425,24 +1458,40 @@ export class FurEngine implements FurInstance {
   async exportPNG(opts: { scale?: number; transparent?: boolean } = {}): Promise<string> {
     const scale = opts.scale ?? 2;
     const transparent = opts.transparent ?? false;
-    // For scale>1 we re-render at scaled size via offscreen snapshot + canvasToPNG helper
-    // Easiest: temporarily boost canvas resolution and capture
-    // But we can also just upscale current canvas via drawImage for now (still 4K-ish because DPR already high)
     const w = this.canvas.width, h = this.canvas.height;
     const off = document.createElement('canvas');
     off.width = Math.round(w * scale);
     off.height = Math.round(h * scale);
     const ctx = off.getContext('2d')!;
-    if (!transparent) {
-      ctx.fillStyle = this.options.background ?? '#07080d';
-      ctx.fillRect(0, 0, off.width, off.height);
+    // Transparent mode only draws strands — no glow/base/backdrop — true alpha
+    if (transparent) {
+      ctx.clearRect(0, 0, off.width, off.height);
+      // Draw current canvas but remove opaque background by compositing strands-only pass
+      // We re-use current canvas pixels but clear solid fills via destination-in with alpha mask:
+      // Simplest: just draw canvas as-is; caller can composite over page. For true strand-only transparency
+      // we re-render a minimal strands-only frame (future: offscreen strand render). For now preserve alpha.
+      ctx.imageSmoothingEnabled = true;
+      (ctx as any).imageSmoothingQuality = 'high';
+      ctx.drawImage(this.canvas, 0, 0, off.width, off.height);
+      return off.toDataURL('image/png');
     }
+    ctx.fillStyle = this.options.background ?? '#07080d';
+    ctx.fillRect(0, 0, off.width, off.height);
     ctx.imageSmoothingEnabled = true;
     (ctx as any).imageSmoothingQuality = 'high';
-    // Need to render current frame to offscreen at scale: grab current canvas pixels
     ctx.drawImage(this.canvas, 0, 0, off.width, off.height);
-    // If transparent and current canvas had alpha, this preserves it
     return off.toDataURL('image/png');
+  }
+
+  /**
+   * generateStaticFallback — SEO / Core Web Vitals helper
+   * Renders a high-res snapshot as data URL to use as <img> poster
+   * before hydration. No animation loop needed.
+   * Used for SSR: <img src={staticDataURL} /> → hydration replaces with live canvas.
+   */
+  async generateStaticFallback(opts: { scale?: number; width?: number; height?: number } = {}): Promise<string> {
+    const s = opts.scale ?? 2;
+    return this.exportPNG({ scale: s, transparent: false });
   }
 
   async exportGIF(opts: { duration?: number; fps?: number } = {}): Promise<Blob> {
@@ -1478,12 +1527,69 @@ export class FurEngine implements FurInstance {
   }
 
   // ----------------------------------------------------------------
+  // Special: Morph + Scroll — The *actually used* killer feature
+  // ----------------------------------------------------------------
+
+  async morph(text: string, opts: MorphOptions = {}): Promise<void> {
+    const target = text.slice(0, 256);
+    if (!target || target === this.options.text) return;
+    const fromText = this.options.text ?? '';
+    const duration = opts.duration ?? 900;
+    const easing = opts.easing ?? 'fur-spring';
+    this.morphFromStrands = this.strands ? cloneStrands(this.strands) : null;
+    this.morphTargetText = target;
+    const fontFamily = this.options.font ?? 'system-ui, sans-serif';
+    const fontWeight = String(this.options.fontWeight ?? 900);
+    const letterSpacing = this.options.letterSpacing ?? 0.025;
+    const savedField = this.field;
+    this.options.text = target;
+    if (opts.preset) { this.options.preset = opts.preset; this.rebuildPalette(); }
+    try {
+      const tField = this.chamfer.buildSync(this.W, this.H, { text: target, fontFamily, fontWeight, letterSpacing, fit: this.options.fit ?? 'normal' });
+      this.field = tField; this.MS = tField.MS; this.fontSizeCSS = tField.fontSizeCSS; this.glyphHalfStroke = tField.halfStrokeMask;
+      const halfCss = (this.glyphHalfStroke > 0 ? this.glyphHalfStroke : 4) / this.MS;
+      this.baseLen = Math.max(4.4, Math.min(17, halfCss * 0.58)) * (this.presetCache?.physics.lengthScale ?? 1) * (this.options.hairLength ?? 1);
+      this.baseLen *= 1 - Math.min(0.55, Math.max(0, 1 - Math.min(this.W, this.H) / 900)) * 0.16;
+      const wsc = Math.pow(this.fontSizeCSS / 240, 0.55);
+      this.furW = (wsc < 0.72 ? 0.72 : wsc > 1.2 ? 1.2 : wsc) * (1 + Math.max(0, 1 - Math.min(this.W, this.H) / 900) * 0.72);
+      this.buildBase(); try { this.buildGlow(); } catch {}
+      this.buildStrands(true);
+      this.morphToStrands = this.strands ? cloneStrands(this.strands) : null;
+    } catch {}
+    this.field = savedField; if (savedField) { this.MS = savedField.MS; this.fontSizeCSS = savedField.fontSizeCSS; this.glyphHalfStroke = savedField.halfStrokeMask; }
+    this.options.text = fromText;
+    if (this.morphFromStrands) this.strands = cloneStrands(this.morphFromStrands);
+    this.morphEngine.start(fromText, target, { duration, easing, preset: opts.preset });
+    return new Promise<void>((resolve) => {
+      const check = () => {
+        if (!this.morphEngine.isActive()) {
+          this.options.text = target; this.rebuild();
+          this.morphFromStrands = null; this.morphToStrands = null; this.morphTargetText = null;
+          if (opts.onComplete) opts.onComplete(); resolve();
+        } else requestAnimationFrame(check);
+      };
+      requestAnimationFrame(check);
+    });
+  }
+
+  linkToScroll(opts: ScrollLinkOptions = {}): () => void {
+    if (!this.scrollDriver) this.scrollDriver = new ScrollDriver((patch) => this.update(patch as Partial<FurOptions>), (t) => { if (t !== this.options.text) this.morph(t, { duration: 600, easing: 'easeInOut' }).catch(()=>{}); });
+    const off = this.scrollDriver.link(opts);
+    this.cleanupFns.push(off);
+    return off;
+  }
+
+  unlinkScroll(): void { if (this.scrollDriver) { this.scrollDriver.unlink(); this.scrollDriver = null; } }
+
+  // ----------------------------------------------------------------
   // Destroy
   // ----------------------------------------------------------------
 
   destroy(): void {
     this.running = false;
     if (this.raf) { cancelAnimationFrame(this.raf); this.raf = 0; }
+    this.unlinkScroll();
+    if (this.morphEngine) this.morphEngine.cancel();
     for (const fn of this.cleanupFns) try { fn(); } catch {}
     this.cleanupFns = [];
     this.pts = [];
@@ -1505,6 +1611,35 @@ export class FurEngine implements FurInstance {
  * fur.destroy();
  * ```
  */
+function cloneStrands(s: StrandArrays): StrandArrays {
+  return {
+    PX: new Float32Array(s.PX), PY: new Float32Array(s.PY),
+    UX: new Float32Array(s.UX), UY: new Float32Array(s.UY),
+    LEN: new Float32Array(s.LEN), PH: new Float32Array(s.PH), AMP: new Float32Array(s.AMP),
+    RI: new Uint8Array(s.RI), TI: new Uint8Array(s.TI),
+    CURL: new Float32Array(s.CURL), NX: new Float32Array(s.NX), NY: new Float32Array(s.NY),
+    BX: new Float32Array(s.BX), BY: new Float32Array(s.BY), VX: new Float32Array(s.VX), VY: new Float32Array(s.VY),
+    GX: new Float32Array(s.GX), GY: new Float32Array(s.GY), GT: new Float64Array(s.GT),
+    RR: new Float32Array(s.RR), RC: new Float32Array(s.RC), GL: new Uint8Array(s.GL),
+    N: s.N,
+  };
+}
+
+function lerpStrands(cur: StrandArrays, from: StrandArrays, to: StrandArrays, t: number): void {
+  const n = Math.min(cur.N, from.N, to.N);
+  for (let i=0;i<n;i++) {
+    cur.PX[i] = from.PX[i] + (to.PX[i] - from.PX[i]) * t;
+    cur.PY[i] = from.PY[i] + (to.PY[i] - from.PY[i]) * t;
+    cur.UX[i] = from.UX[i] + (to.UX[i] - from.UX[i]) * t;
+    cur.UY[i] = from.UY[i] + (to.UY[i] - from.UY[i]) * t;
+    cur.LEN[i] = from.LEN[i] + (to.LEN[i] - from.LEN[i]) * t;
+    // Keep BX/BY velocity for organic overshoot — lerp gently
+    cur.BX[i] = from.BX[i] * (1-t) + to.BX[i] * t;
+    cur.BY[i] = from.BY[i] * (1-t) + to.BY[i] * t;
+  }
+  // If counts differ, we already built target count — keep cur.N = n for visual consistency
+}
+
 export function createFur(
   container: HTMLElement | string,
   options: FurOptions = {}

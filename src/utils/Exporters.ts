@@ -142,11 +142,16 @@ export class GIFEncoder {
   }
 
   private buildSingleFrameGIF(frame: ImageData): Uint8Array {
-    // Minimal 89a GIF builder — single frame, 256-color global palette
-    // Quantize via uniform 6x6x6 cube → 216 colors + greys
+    // Minimal 89a GIF builder — 256-color global palette (uniform cube)
+    // For multi-frame GIF we reuse global palette from first frame and
+    // re-quantize each frame individually to keep palette stable.
     const palette = this.buildPalette(frame);
-    const indices = this.quantize(frame, palette);
-    const lzw = this.lzwEncode(indices, 8);
+    // Pre-quantize all frames against same palette for consistent colors
+    const allLzw: number[][] = [];
+    for (let fi = 0; fi < this.frames.length; fi++) {
+      const idx = this.quantize(this.frames[fi], palette);
+      allLzw.push(this.lzwEncode(idx, 8));
+    }
 
     const out: number[] = [];
     const push = (...b: number[]) => { for (const v of b) out.push(v & 0xff); };
@@ -169,9 +174,10 @@ export class GIFEncoder {
     pushStr('NETSCAPE2.0');
     push(0x03, 0x01, 0x00, 0x00, 0x00);
 
-    // Image descriptor + data
+    // Image descriptor + data — per-frame LZW
     for (let f = 0; f < this.frames.length; f++) {
       const delay = Math.round((this.delays[f] ?? 50) / 10); // hundredths
+      const curLzw = allLzw[f] ?? allLzw[0];
       push(0x21, 0xf9, 0x04, 0x00);
       pushWord(delay);
       push(0x00, 0x00);
@@ -179,12 +185,11 @@ export class GIFEncoder {
       pushWord(this.width); pushWord(this.height);
       push(0x00);
       push(0x08); // LZW min code size
-      // Sub-blocks
       let pos = 0;
-      while (pos < lzw.length) {
-        const chunk = Math.min(255, lzw.length - pos);
+      while (pos < curLzw.length) {
+        const chunk = Math.min(255, curLzw.length - pos);
         push(chunk);
-        for (let i = 0; i < chunk; i++) push(lzw[pos + i]);
+        for (let i = 0; i < chunk; i++) push(curLzw[pos + i]);
         pos += chunk;
       }
       push(0x00);
