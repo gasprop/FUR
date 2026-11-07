@@ -54,7 +54,7 @@ export function useFur(
       setReady(false);
     };
     // Only remount when container changes — options flow via update()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, [containerRef]);
 
   // Reactive update for option changes (text/font/preset/wind etc.)

@@ -1,0 +1,21 @@
+<!doctype html>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>furjs — vanilla example (2026)</title>
+<style>body{margin:0;background:#07080d;color:#e8eaf0;font:14px system-ui}#hero{width:100%;height:260px;border-bottom:1px solid #1e2233}</style>
+<div id="hero"></div>
+<pre id="log" style="padding:12px;color:#8a8ea6"></pre>
+<script type="module">
+import { createFur } from '../dist/index.js';
+const log = (m)=> document.getElementById('log').textContent += m+'\n';
+const fur = createFur('#hero', {
+  text: 'ROYAL',
+  font: 'Cinzel, serif',
+  preset: 'royal-sable',
+  wind: { speed:0.6, direction:45 },
+  interactive: 'repel',
+});
+log('mounted: '+fur.canvas.width+'×'+fur.canvas.height);
+setTimeout(()=> fur.morph('SABLE', {duration:900}), 1500);
+setTimeout(()=> fur.linkToScroll({windLink:true}), 3000);
+window.fur = fur;
+</script>

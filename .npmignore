@@ -1,0 +1,30 @@
+# furjs .npmignore — publish only what users need
+# package.json `files` already whitelists dist+bin+README, this is safety net
+src
+node_modules
+*.tsbuildinfo
+.turbo
+.cache
+coverage
+playground-dist
+src
+tests
+examples
+.vscode
+.idea
+.github
+.gitignore
+eslint.config.*
+prettier*
+vitest*
+tsup.config.ts
+tsconfig.json
+panther.js
+panther-styles.css
+PantherWord.tsx
+SPECIFICATION_AND_PROMPT.md
+CHANGELOG.md
+CONTRIBUTING.md
+SECURITY.md
+.editorconfig
+.nvmrc

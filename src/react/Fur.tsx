@@ -123,7 +123,7 @@ export const Fur = forwardRef<FurRef, FurProps>(function Fur(props, forwardedRef
       };
     }
     // Only mount once; options updates handled separately
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, []);
 
   // Live updates when fur-relevant props change
