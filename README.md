@@ -328,7 +328,18 @@ The original `panther.js` renders the word **"account"** as Black Panther fur wi
 
 MIT — see `LICENSE`. The `panther.js` reference engine is included for provenance under the same license.
 
-## Author
+**Copyright (c) 2026 thatonearyan**
 
-[@thatanearyan](https://github.com/gasprop) — `furjs` / `@thatanearyan/fur`
+## Author & Links
+
+**Author:** thatonearyan <https://github.com/thatonearyan-sh>
+
+- **GitHub Repo:** https://github.com/thatonearyan-sh/furjs
+- **Git Remote:** `git@github.com:thatonearyan-sh/furjs.git`
+- **Repository URL:** `git+https://github.com/thatonearyan-sh/furjs.git`
+- **Bugs / Issues:** https://github.com/thatonearyan-sh/furjs/issues
+- **Homepage:** https://github.com/thatonearyan-sh/furjs#readme
+- **npm Username:** `thatanearyan` — packages `furjs` (`npm i furjs`) and `@thatanearyan/fur` (`npm i @thatanearyan/fur`)
+
+> [@thatonearyan](https://github.com/thatonearyan-sh) — `furjs` / `@thatanearyan/fur` — 2026
 

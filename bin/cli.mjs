@@ -151,7 +151,7 @@ function playgroundHTML(defaultText) {
       <button class="btn" id="btn-gif">Export GIF</button>
       <button class="btn primary" id="btn-copy-react">Copy React</button>
       <button class="btn" id="btn-copy-vanilla">Copy Vanilla</button>
-      <a class="btn ghost" href="https://github.com/gasprop/FUR" target="_blank" rel="noreferrer">GitHub ↗</a>
+      <a class="btn ghost" href="https://github.com/thatonearyan-sh/furjs" target="_blank" rel="noreferrer">GitHub ↗</a>
     </div>
   </div>
 
@@ -254,7 +254,7 @@ function playgroundHTML(defaultText) {
   <div class="foot">
     <div style="width:min(1180px, calc(100% - 32px)); margin:0 auto">
       Built from <code>panther.js</code> — chamfer distance transforms, damped springs, Bezier curl fields & Worley rosettes. Pure Canvas 2D. Zero dependencies. <br/>
-      <span style="opacity:.7">Run <code>npx furjs "YOUR TEXT"</code> anywhere · <a href="https://github.com/gasprop/FUR">github.com/gasprop/FUR</a> · MIT · by @thatanearyan</span>
+      <span style="opacity:.7">Run <code>npx furjs "YOUR TEXT"</code> anywhere · <a href="https://github.com/thatonearyan-sh/furjs">github.com/gasprop/FUR</a> · MIT · by @thatanearyan</span>
     </div>
   </div>
 

@@ -16,15 +16,15 @@
     "react",
     "nextjs"
   ],
-  "author": "Aryan <thatanearyan>",
+  "author": "thatonearyan <https://github.com/thatonearyan-sh>",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/gasprop/FUR.git"
+    "url": "git+https://github.com/thatonearyan-sh/furjs.git"
   },
-  "homepage": "https://github.com/gasprop/FUR#readme",
+  "homepage": "https://github.com/thatonearyan-sh/furjs#readme",
   "bugs": {
-    "url": "https://github.com/gasprop/FUR/issues"
+    "url": "https://github.com/thatonearyan-sh/furjs/issues"
   },
   "publishConfig": {
     "access": "public",
